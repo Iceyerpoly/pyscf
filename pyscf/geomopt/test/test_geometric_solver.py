@@ -16,6 +16,8 @@
 import unittest
 from pyscf import lib
 from pyscf import gto, scf
+import io, os
+from contextlib import redirect_stdout, redirect_stderr
 
 try:
     from pyscf.geomopt import geometric_solver
@@ -84,6 +86,29 @@ class KnownValues(unittest.TestCase):
         mf_opt = mol.RHF().Gradients().optimizer().run(max_cycle=1)
         self.assertTrue(not mf_opt.converged)
 
+    ### whether `hessian='file:filename'` works
+    def test_optimize_with_hessian_filename_in_geomeTRIC_style(self):
+        mol = gto.M(atom='O 0 0 0; H 0 .75 .58; H 0 -.75 .58')
+        mf = mol.RHF()
+        conv, mol_eq = geometric_solver.kernel(mf, hessian='file:hessian.dat')
+        os.remove('hessian.dat')
+        self.assertTrue(conv)
+
+    ### whether numerical hessian still counted as optimization step in TS ###
+    def test_optimize_with_numerical_hessian_in_TS(self):
+        mol = gto.M(atom='O 0 0 0; H 0 .75 .58; H 0 -.75 .58')
+        mf  = mol.RHF()
+        opt = mf.Gradients().optimizer(solver='geomeTRIC')
+        opt.max_cycle = 1
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            opt.kernel({'transition': True})
+        stdout_content = buf_out.getvalue()
+        stderr_content = buf_err.getvalue()
+        combined = stdout_content + stderr_content
+        self.assertIn("18 / 18 gradient calculations complete", combined)
+        
 if __name__ == "__main__":
     print("Tests for geometric_solver")
     unittest.main()
