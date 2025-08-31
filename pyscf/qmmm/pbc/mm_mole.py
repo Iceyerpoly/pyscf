@@ -6,7 +6,7 @@ from pyscf import qmmm
 from pyscf.gto.mole import is_au
 from pyscf.data.elements import charge
 from pyscf.lib import param, logger
-from pyscf.pbc.gto.cell import _cut_mesh_for_ewald
+# from pyscf.pbc.gto.cell import _cut_mesh_for_ewald
 from scipy.special import erf, erfc, lambertw
 from pyscf import lib
 
