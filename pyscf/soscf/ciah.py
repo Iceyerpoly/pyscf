@@ -16,8 +16,6 @@
 # Author: Qiming Sun <osirpt.sun@gmail.com>
 #
 
-import sys
-
 import numpy
 import scipy.linalg
 from pyscf import lib
@@ -28,7 +26,7 @@ from pyscf import __config__
 def expmat(a):
     return scipy.linalg.expm(a)
 
-class CIAHOptimizer(lib.StreamObject):
+class CIAHOptimizerMixin:
 
     conv_tol_grad = getattr(__config__, 'soscf_ciah_CIAHOptimizer_conv_tol_grad', 1e-4)
     max_stepsize = getattr(__config__, 'soscf_ciah_CIAHOptimizer_max_stepsize', .05)
@@ -43,14 +41,14 @@ class CIAHOptimizer(lib.StreamObject):
     ah_max_cycle = getattr(__config__, 'soscf_ciah_CIAHOptimizer_ah_max_cycle', 30)
     ah_trust_region = getattr(__config__, 'soscf_ciah_CIAHOptimizer_ah_trust_region', 3.)
 
-    def __init__(self):
-        self._keys = set(('conv_tol_grad', 'max_stepsize', 'max_iters',
-                          'kf_interval', 'kf_trust_region', 'ah_start_tol',
-                          'ah_start_cycle', 'ah_level_shift', 'ah_conv_tol',
-                          'ah_lindep', 'ah_max_cycle', 'ah_trust_region'))
+    _keys = {
+        'conv_tol_grad', 'max_stepsize', 'max_iters', 'kf_interval',
+        'kf_trust_region', 'ah_start_tol', 'ah_start_cycle', 'ah_level_shift',
+        'ah_conv_tol', 'ah_lindep', 'ah_max_cycle', 'ah_trust_region',
+    }
 
     def gen_g_hop(self, u):
-        pass
+        raise NotImplementedError
 
     def pack_uniq_var(self, mat):
         nmo = mat.shape[0]
@@ -69,18 +67,15 @@ class CIAHOptimizer(lib.StreamObject):
         return numpy.dot(u0, expmat(dr))
 
     def get_grad(self, u):
-        pass
+        raise NotImplementedError
 
     def cost_function(self, u):
-        pass
+        raise NotImplementedError
 
 
 def rotate_orb_cc(iah, u0, conv_tol_grad=None, verbose=logger.NOTE):
     t2m = (logger.process_clock(), logger.perf_counter())
-    if isinstance(verbose, logger.Logger):
-        log = verbose
-    else:
-        log = logger.Logger(sys.stdout, verbose)
+    log = logger.new_logger(verbose=verbose)
 
     if conv_tol_grad is None:
         conv_tol_grad = iah.conv_tol_grad
@@ -163,7 +158,7 @@ def rotate_orb_cc(iah, u0, conv_tol_grad=None, verbose=logger.NOTE):
 
                 elif (ikf > 2 and # avoid frequent keyframe
                       (ikf >= max(iah.kf_interval, iah.kf_interval-numpy.log(norm_dr+1e-9)) or
-                       # Insert keyframe if the keyframe and the esitimated g_orb are too different
+                       # Insert keyframe if the keyframe and the estimated g_orb are too different
                        norm_gorb < norm_gkf/kf_trust_region)):
                     ikf = 0
                     ukf = iah.extract_rotation(dr, ukf)
@@ -211,10 +206,7 @@ def rotate_orb_cc(iah, u0, conv_tol_grad=None, verbose=logger.NOTE):
 def davidson_cc(h_op, g_op, precond, x0, tol=1e-10, xs=[], ax=[],
                 max_cycle=30, lindep=1e-14, dot=numpy.dot, verbose=logger.WARN):
 
-    if isinstance(verbose, logger.Logger):
-        log = verbose
-    else:
-        log = logger.Logger(sys.stdout, verbose)
+    log = logger.new_logger(verbose=verbose)
 
     toloose = numpy.sqrt(tol)
     # the first trial vector is (1,0,0,...), which is not included in xs
@@ -230,21 +222,28 @@ def davidson_cc(h_op, g_op, precond, x0, tol=1e-10, xs=[], ax=[],
         xs.append(x0)
         ax.append(h_op(x0))
     else:
+        # Note, the subspace H must be real even for Hessian of complex orbitals.
+        # See https://doi.org/10.1063/1.5036594 .
+        # In the case of complex orbitals, the subspace H should be constructed as
+        # a 2N x 2N real matrix, where N is the number of parameters in rotation.
+        # The extended space corresponds to the t^dagger for rotation parameters.
+        # This function only constructs one diagonal block of the Hessian matrix.
+        # This is an effective approximation to the solution from the standard Hessian.
         for i in range(1, nx+1):
             for j in range(1, i+1):
-                heff[i,j] = dot(xs[i-1].conj(), ax[j-1])
-                ovlp[i,j] = dot(xs[i-1].conj(), xs[j-1])
-            heff[1:i,i] = heff[i,1:i].conj()
-            ovlp[1:i,i] = ovlp[i,1:i].conj()
+                heff[i,j] = dot(xs[i-1].conj(), ax[j-1]).real
+                ovlp[i,j] = dot(xs[i-1].conj(), xs[j-1]).real
+            heff[1:i,i] = heff[i,1:i]
+            ovlp[1:i,i] = ovlp[i,1:i]
 
     w_t = 0
     for istep in range(max_cycle):
         g = g_op()
         nx = len(xs)
         for i in range(nx):
-            heff[i+1,0] = dot(xs[i].conj(), g)
-            heff[nx,i+1] = dot(xs[nx-1].conj(), ax[i])
-            ovlp[nx,i+1] = dot(xs[nx-1].conj(), xs[i])
+            heff[i+1,0] = dot(xs[i].conj(), g).real
+            heff[nx,i+1] = dot(xs[nx-1].conj(), ax[i]).real
+            ovlp[nx,i+1] = dot(xs[nx-1].conj(), xs[i]).real
         heff[0,:nx+1] = heff[:nx+1,0].conj()
         heff[1:nx,nx] = heff[nx,1:nx].conj()
         ovlp[1:nx,nx] = ovlp[nx,1:nx].conj()
@@ -314,5 +313,3 @@ def _dgemv(v, m):
     for i,vi in enumerate(v[1:]):
         vm += vi * m[i+1]
     return vm
-
-

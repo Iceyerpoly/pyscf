@@ -43,18 +43,35 @@ class CDIIS(lib.diis.DIIS):
         self.rollback = 0
         self.space = 8
         self.Corth = Corth
-        #?self._scf = mf
-        #?if hasattr(self._scf, 'get_orbsym'): # Symmetry adapted SCF objects
-        #?    self.orbsym = mf.get_orbsym(Corth)
-        #?    sym_forbid = self.orbsym[:,None] != self.orbsym
+        self.damp = 0
 
     def update(self, s, d, f, *args, **kwargs):
         errvec = get_err_vec(s, d, f, self.Corth)
         logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(errvec))
-        xnew = lib.diis.DIIS.update(self, f, xerr=errvec)
+        # For multi-component SCF, need to flatten f for DIIS, then recover from it
+        was_dict = False
+        if isinstance(f, dict):
+            shapes = {k: v.shape for k, v in f.items()}
+            keys = sorted(f.keys())
+            f = numpy.concatenate([f[k].ravel() for k in keys])
+            was_dict = True
+        f_prev = kwargs.get('f_prev', None)
+        if abs(self.damp) < 1e-6 or f_prev is None:
+            xnew = lib.diis.DIIS.update(self, f, xerr=errvec)
+        else:
+            xnew = lib.diis.DIIS.update(self, f*(1-self.damp) + f_prev*self.damp, xerr=errvec)
         if self.rollback > 0 and len(self._bookkeep) == self.space:
             self._bookkeep = self._bookkeep[-self.rollback:]
-        return xnew
+        if was_dict:
+            offset = 0
+            xnew_dict = {}
+            for k in keys:
+                size = numpy.prod(shapes[k])
+                xnew_dict[k] = xnew[offset:offset + size].reshape(shapes[k])
+                offset += size
+            return xnew_dict
+        else:
+            return xnew
 
     def get_num_vec(self):
         if self.rollback:
@@ -67,20 +84,28 @@ SCFDIIS = SCF_DIIS = DIIS = CDIIS
 def get_err_vec_orig(s, d, f):
     '''error vector = SDF - FDS'''
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(numpy.dot, (s,d,f))
+        sdf = reduce(lib.dot, (s,d,f))
         errvec = (sdf.conj().T - sdf).ravel()
 
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
+            sdf = reduce(lib.dot, (s[i], d[i], f[i]))
             errvec.append((sdf.conj().T - sdf).ravel())
         errvec = numpy.hstack(errvec)
 
-    elif f.ndim == s.ndim+1 and f.shape[0] == 2:  # for UHF
+    elif isinstance(f, numpy.ndarray) and f.ndim == s.ndim+1 and \
+            f.shape[0] == 2:  # for UHF
         errvec = numpy.hstack([
             get_err_vec_orig(s, d[0], f[0]).ravel(),
             get_err_vec_orig(s, d[1], f[1]).ravel()])
+
+    elif isinstance(f, dict):  # for multi-component
+        errvec = []
+        for t in sorted(s.keys()):
+            errvec.append(get_err_vec_orig(s[t], d[t], f[t]).ravel())
+        errvec = numpy.concatenate(errvec)
+
     else:
         raise RuntimeError('Unknown SCF DIIS type')
     return errvec
@@ -93,7 +118,7 @@ def get_err_vec_orth(s, d, f, Corth):
         sym_forbid = orbsym[:,None] != orbsym
 
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(numpy.dot, (Corth.conj().T, s, d, f, Corth))
+        sdf = reduce(lib.dot, (Corth.conj().T, s, d, f, Corth))
         if orbsym is not None:
             sdf[sym_forbid] = 0
         errvec = (sdf.conj().T - sdf).ravel()
@@ -101,16 +126,24 @@ def get_err_vec_orth(s, d, f, Corth):
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(numpy.dot, (Corth[i].conj().T, s[i], d[i], f[i], Corth[i]))
+            sdf = reduce(lib.dot, (Corth[i].conj().T, s[i], d[i], f[i], Corth[i]))
             if orbsym is not None:
                 sdf[sym_forbid] = 0
             errvec.append((sdf.conj().T - sdf).ravel())
-        errvec = numpy.vstack(errvec).ravel()
+        errvec = numpy.hstack(errvec)
 
-    elif f.ndim == s.ndim+1 and f.shape[0] == 2:  # for UHF
+    elif isinstance(f, numpy.ndarray) and f.ndim == s.ndim+1 and \
+            f.shape[0] == 2:  # for UHF
         errvec = numpy.hstack([
             get_err_vec_orth(s, d[0], f[0], Corth[0]).ravel(),
             get_err_vec_orth(s, d[1], f[1], Corth[1]).ravel()])
+
+    elif isinstance(f, dict):  # for multi-component
+        errvec = []
+        for t in sorted(s.keys()):
+            errvec.append(get_err_vec_orth(s[t], d[t], f[t], Corth[t]).ravel())
+        errvec = numpy.concatenate(errvec)
+
     else:
         raise RuntimeError('Unknown SCF DIIS type')
     return errvec
@@ -125,7 +158,7 @@ class EDIIS(lib.diis.DIIS):
     '''SCF-EDIIS
     Ref: JCP 116, 8255 (2002); DOI:10.1063/1.1470195
     '''
-    def update(self, s, d, f, mf, h1e, vhf):
+    def update(self, s, d, f, mf, h1e, vhf, *args, **kwargs):
         if self._head >= self.space:
             self._head = 0
         if not self._buffer:
@@ -185,7 +218,7 @@ class ADIIS(lib.diis.DIIS):
     '''
     Ref: JCP 132, 054109 (2010); DOI:10.1063/1.3304922
     '''
-    def update(self, s, d, f, mf, h1e, vhf):
+    def update(self, s, d, f, mf, h1e, vhf, *args, **kwargs):
         if self._head >= self.space:
             self._head = 0
         if not self._buffer:

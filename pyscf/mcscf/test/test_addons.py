@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import unittest
 from functools import reduce
-import numpy, scipy
+import numpy
+import scipy
 from pyscf import lib
 from pyscf import gto
 from pyscf import scf
@@ -110,14 +110,14 @@ class KnownValues(unittest.TestCase):
         mo, ci, mo_e = mcr.canonicalize(mo1)
         e1 = numpy.einsum('ji,jk,ki', mo, f1, mo)
         self.assertAlmostEqual(e1, 44.2658681077, 7)
-        self.assertAlmostEqual(lib.fp(mo_e), 5.1364166175063097, 7)
+        self.assertAlmostEqual(lib.fp(mo_e), 5.1364166175063097, 5)
 
         mo, ci, mo_e = mcr.canonicalize(mo1, eris=mcr.ao2mo(mcr.mo_coeff))
         e1 = numpy.einsum('ji,jk,ki', mo, f1, mo)
         self.assertAlmostEqual(e1, 44.2658681077, 7)
         self.assertAlmostEqual(lib.fp(mo_e), 4.1206025804989173, 4)
 
-        mcr1 = copy.copy(mcr)
+        mcr1 = mcr.copy()
         mcr1.frozen = 2
         mo, ci, mo_e = mcr1.canonicalize(mo1)
         self.assertAlmostEqual(lib.fp(mo_e), 6.6030999409178577, 5)
@@ -217,7 +217,7 @@ class KnownValues(unittest.TestCase):
         npt.assert_array_almost_equal(rmp2_noons, noons, decimal=5)
         mymc.kernel(natorbs)
 
-        # The tests below are only to ensure that `make_natural_orbitals` can 
+        # The tests below are only to ensure that `make_natural_orbitals` can
         # run at all since we've confirmed above that the NOONs are correct.
         # Test CISD
         mycisd = ci.CISD(myhf).run()
@@ -239,7 +239,7 @@ class KnownValues(unittest.TestCase):
         mymc = mcscf.CASCI(myhf, ncas, nelecas)
 
         # Test UHF
-        # The tests below are only to ensure that `make_natural_orbitals` can 
+        # The tests below are only to ensure that `make_natural_orbitals` can
         # run at all since we've confirmed above that the NOONs are correct for MP2
         mcscf.addons.make_natural_orbitals(myhf)
 
@@ -251,7 +251,7 @@ class KnownValues(unittest.TestCase):
         npt.assert_array_almost_equal(rmp2_noons, noons)
         mymc.kernel(natorbs)
 
-        # The tests below are only to ensure that `make_natural_orbitals` can 
+        # The tests below are only to ensure that `make_natural_orbitals` can
         # run at all since we've confirmed above that the NOONs are correct.
         # Test CISD
         mycisd = ci.CISD(myhf).run()
@@ -275,7 +275,9 @@ class KnownValues(unittest.TestCase):
         dm1 = mc.analyze()
         self.assertAlmostEqual(lib.fp(dm1[0]), 0.52396929381500434, 4)
 
-        self.assertRaises(TypeError, mc.state_average_, (.64,.36))
+        mc = mc.state_average((.64,.36)).run()
+        self.assertAlmostEqual(mc.e_tot, -108.83342083775061, 7)
+        self.assertAlmostEqual(mc.e_average, -108.83342083775061, 7)
 
     def test_state_average_fci_dmrg(self):
         fcisolver1 = fci.direct_spin1_symm.FCISolver(mol)

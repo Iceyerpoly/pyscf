@@ -18,7 +18,6 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <assert.h>
 #include "config.h"
 #include "np_helper/np_helper.h"
 #include "cint.h"
@@ -500,7 +499,7 @@ for (n = 0; n < ALIGNMENT; n++) {
 
 for (jsh = jsh0; jsh < jsh1; jsh++) {
         si_j = screen_index[gblk0 * nbas + jsh];
-        if (si_j >= nbins_j && pair_mask[ish+nbas+jsh]) {
+        if (si_j >= nbins_j && pair_mask[ish*nbas+jsh]) {
                 j0 = ao_loc[jsh];
                 j1 = ao_loc[jsh+1];
                 ij = (i - ioff) * nj - joff;
@@ -569,8 +568,8 @@ void VXCdot_aow_ao_dense(double *out, double *bra, double *ket, double *wv,
 {
         const size_t Nao = nao;
         const size_t Ngrids = ngrids;
-        const int nao_blksize = BOXSIZE1_N * 4;
-        const int ngrids_blksize = BOXSIZE1_M;
+        const int nao_blksize = 64;
+        const int ngrids_blksize = 256;
         const char TRANS_T = 'T';
         const char TRANS_N = 'N';
         const double D1 = 1;
@@ -605,7 +604,6 @@ void VXCdot_aow_ao_sparse(double *out, double *bra, double *ket, double *wv,
                           int nao, int ngrids, int nbas, int hermi, int nbins,
                           uint8_t *screen_index, uint8_t *pair_mask, int *ao_loc)
 {
-        assert(ngrids & 0xfffffffffff8 == ngrids);
         size_t Nao = nao;
         int shls_slice[2] = {0, nbas};
         int *box_l1_loc = malloc(sizeof(int) * (nbas+1));
@@ -893,7 +891,6 @@ void VXCdot_ao_ao_sparse(double *out, double *bra, double *ket,
                          int nao, int ngrids, int nbas, int hermi, int nbins,
                          uint8_t *screen_index, uint8_t *pair_mask, int *ao_loc)
 {
-        assert(ngrids & 0xfffffffffff8 == ngrids);
         size_t Nao = nao;
         int shls_slice[2] = {0, nbas};
         int *box_l1_loc = malloc(sizeof(int) * (nbas+1));
