@@ -242,7 +242,8 @@ def estimate_error(mol, mm_coords, a, mm_charges, rcut_hcore, dm, precision=1e-8
         icell += 1
     return err_tot
 
-def determine_hcore_cutoff(mol, mm_coords, a, mm_charges, rcut_min, dm, rcut_step=1.0, precision=1e-4, rcut_max=1e4, unit='angstrom'):
+def determine_hcore_cutoff(mol, mm_coords, a, mm_charges, rcut_min, dm,
+                           rcut_step=1.0, precision=1e-4, rcut_max=1e4, unit='angstrom'):
 
     qm_octupoles = get_qm_octupoles(mol, dm)
 
