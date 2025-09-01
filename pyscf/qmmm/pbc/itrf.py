@@ -146,14 +146,14 @@ def qmmm_for_scf(scf_method, mm_mol):
             r_qm = (mol.atom_coords() - qm_center)[None,:,:] - Ls[:,None,:]
             r_qm = np.einsum('Lix,Lix->Li', r_qm, r_qm)
             assert rcut_hcore**2 < np.min(r_qm), \
-                f"QM image is within rcut_hcore of QM center. " + \
+                "QM image is within rcut_hcore of QM center. " + \
                 f"rcut_hcore = {rcut_hcore} >= min(r_qm) = {np.sqrt(np.min(r_qm))}"
             Ls[Ls == np.inf] = 0.0
 
             r_qm = mol.atom_coords() - qm_center
             r_qm = np.einsum('ix,ix->i', r_qm, r_qm)
             assert rcut_hcore**2 > np.max(r_qm), \
-                f"Not all QM atoms are within rcut_hcore of QM center. " + \
+                "Not all QM atoms are within rcut_hcore of QM center. " + \
                 f"rcut_hcore = {rcut_hcore} <= max(r_qm) = {np.sqrt(np.max(r_qm))}"
             r_qm = None
 
@@ -187,7 +187,7 @@ def qmmm_for_scf(scf_method, mm_mol):
                     j3c = df.incore.aux_e2(mol, fakemol, intor=intor,
                                            aosym='s2ij', cintopt=cintopt)
                     v += lib.einsum('xk,k->x', j3c, -charges[i0:i1])
-                if not (type(v) is int):
+                if type(v) is not int:
                     v = lib.unpack_tril(v)
                 h1e += v
             else:
